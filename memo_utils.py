@@ -1,6 +1,6 @@
 import os
+import sys
 import subprocess
-import time
 from typing import Optional
 
 class MEMOHelper:
@@ -28,48 +28,31 @@ class MEMOHelper:
 
     def setup_memo(self) -> bool:
         """Sets up MEMO if not already installed"""
-        try:
-            if not os.path.exists(self.memo_path):
-                print("Cloning MEMO repository...")
+        if not os.path.exists(self.memo_path):
+            try:
+                # Clone MEMO repository
                 subprocess.run([
-                    "git", "clone",
+                    "git", "clone", 
                     "https://github.com/memoavatar/memo.git",
                     self.memo_path
                 ], check=True)
                 
-                # Install dependencies first
-                print("Installing dependencies...")
-                if not self.install_dependencies():
-                    return False
-
-                # Wait for files to be available
-                time.sleep(2)
+                # Install requirements
+                subprocess.run([
+                    "pip", "install", "-r",
+                    os.path.join(self.memo_path, "requirements.txt")
+                ], check=True)
                 
-                # Create configs directory if it doesn't exist
-                os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
-                
-                # Create default config
-                with open(self.config_path, "w") as f:
-                    f.write("""
-model:
-  name: memo
-  checkpoint: pretrained/memo.pth
-
-data:
-  image_size: 256
-  fps: 25
-
-inference:
-  batch_size: 1
-  num_workers: 0
-""")
+                # Install additional dependencies that might be missing
+                subprocess.run([
+                    "pip", "install", "omegaconf", "moviepy", "imageio-ffmpeg"
+                ], check=True)
                 
                 return True
-            return True
-
-        except Exception as e:
-            print(f"Error during MEMO setup: {e}")
-            return False
+            except subprocess.CalledProcessError as e:
+                print(f"Error setting up MEMO: {e}")
+                return False
+        return True
 
     def generate_video(
         self,
@@ -78,17 +61,17 @@ inference:
         output_dir: str
     ) -> Optional[str]:
         """Generates video using MEMO"""
+        # First make sure the dependencies are installed
         try:
-            if not os.path.exists(self.memo_path):
-                print("MEMO not installed. Running setup...")
-                if not self.setup_memo():
-                    return None
-                
-            output_path = os.path.join(output_dir, "memo_output.mp4")
+            import omegaconf
+        except ImportError:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "omegaconf"])
             
+        try:
+            output_path = os.path.join(output_dir, "memo_output.mp4")
             print("Running MEMO inference...")
             subprocess.run([
-                "python",
+                sys.executable,  # Use the current Python interpreter
                 os.path.join(self.memo_path, "inference.py"),
                 "--config", self.config_path,
                 "--input_image", input_image,
@@ -96,16 +79,7 @@ inference:
                 "--output_dir", output_dir
             ], check=True)
             
-            if os.path.exists(output_path):
-                print(f"Video generated successfully at: {output_path}")
-                return output_path
-            else:
-                print("Video file not found after generation")
-                return None
-                
+            return output_path if os.path.exists(output_path) else None
         except subprocess.CalledProcessError as e:
             print(f"Error generating video with MEMO: {e}")
-            return None
-        except Exception as e:
-            print(f"Unexpected error during video generation: {e}")
             return None
